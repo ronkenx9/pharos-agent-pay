@@ -1,0 +1,30 @@
+{
+  "name": "pharos-agent-pay",
+  "version": "1.0.0",
+  "description": "Agent-to-agent metered payments on Pharos: EIP-712 signed spend authorizations settled on-chain per service call",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "mcp": "tsx src/mcp-server.ts",
+    "start": "node dist/cli.js",
+    "lint": "tsc --noEmit"
+  },
+  "keywords": ["pharos", "payments", "x402", "agent", "metered", "escrow", "settlement", "onchain", "agent-skill"],
+  "author": "roninxx",
+  "license": "MIT",
+  "dependencies": {
+    "pharos-agent-kit": "^1.0.2",
+    "viem": "^2.0.0",
+    "zod": "^3.22.0",
+    "dotenv": "^16.0.0",
+    "minimist": "^1.2.8"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "tsx": "^4.7.0",
+    "@types/node": "^20.0.0",
+    "@types/minimist": "^1.2.5"
+  }
+}
