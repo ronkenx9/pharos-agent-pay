@@ -17,6 +17,14 @@ import {
   ledger,
   type PaymentAuthorization,
 } from '../tools/voucher.js';
+import {
+  buildReceipt,
+  saveReceipt,
+  signReceipt,
+  verifyReceipt,
+  loadReceipt,
+  type Receipt,
+} from '../tools/receipt.js';
 
 const ERC20_TRANSFER_ABI = [
   {
@@ -197,6 +205,7 @@ export const agentPaySettleAction = {
     authorization: authShape,
     signature: z.string(),
     amount: z.string().describe('Amount to settle for this draw, in token units (e.g. "0.05")'),
+    save_receipt: z.boolean().optional().describe('Write a JSON receipt to RECEIPTS_DIR (default true)'),
     private_key: z.string().optional(),
     rpc_url: z.string().optional(),
   }),
@@ -243,6 +252,18 @@ export const agentPaySettleAction = {
         functionName: 'transfer',
         args: [auth.payee, drawAmount],
       });
+
+      // Produce a durable, serializable receipt for this settlement.
+      const receipt = buildReceipt({ auth, amount: drawAmount, amountHuman: input.amount, txHash: hash });
+      let receiptPath: string | undefined;
+      if (input.save_receipt !== false) {
+        try {
+          receiptPath = saveReceipt(receipt);
+        } catch {
+          // Persisting is best-effort; the receipt is still returned in-band.
+        }
+      }
+
       return {
         status: 'success',
         txHash: hash,
@@ -252,6 +273,8 @@ export const agentPaySettleAction = {
           settledHuman: input.amount,
           totalSpentBaseUnits: drawResult.spent.toString(),
           remainingBaseUnits: drawResult.remaining.toString(),
+          receipt,
+          receiptPath,
         },
         message: `Settled ${input.amount} to ${auth.payee} for ${auth.serviceId}. Tx: ${hash}`,
       };
@@ -263,9 +286,119 @@ export const agentPaySettleAction = {
   },
 };
 
+const receiptShape = z.object({
+  payer: z.string(),
+  payee: z.string(),
+  token: z.string(),
+  amount: z.string(),
+  amountHuman: z.string(),
+  serviceId: z.string(),
+  authorizationHash: z.string(),
+  nonce: z.string(),
+  txHash: z.string(),
+  chainId: z.number(),
+  settledAt: z.string(),
+  explorerUrl: z.string(),
+});
+
+/**
+ * SIGN_RECEIPT — the payee counter-signs a settlement receipt, acknowledging
+ * the payment. Runs in the payee's runtime. Produces a non-repudiable proof and
+ * re-saves the receipt with the signature attached.
+ */
+export const agentPaySignReceiptAction = {
+  name: 'AGENT_PAY_SIGN_RECEIPT',
+  similes: ['acknowledge payment', 'counter-sign receipt', 'confirm payment received'],
+  description: "Payee counter-signs a settlement receipt (EIP-712), making it non-repudiable, and saves it with the signature.",
+  schema: z.object({
+    receipt: receiptShape,
+    save_receipt: z.boolean().optional().describe('Re-save the receipt with the signature (default true)'),
+    private_key: z.string().optional().describe("Payee private key; defaults to the agent/env key"),
+  }),
+  handler: async (agent: any, input: Record<string, any>) => {
+    const key = (input.private_key || agent?.privateKey || process.env.WALLET_PRIVATE_KEY) as Hex | undefined;
+    if (!key) return { status: 'error', message: 'Payee private key missing.' };
+
+    const receipt = input.receipt as Receipt;
+    const signer = privateKeyToAccount(key).address;
+    if (signer.toLowerCase() !== receipt.payee.toLowerCase()) {
+      return { status: 'error', message: `Signing wallet ${signer} is not the receipt payee ${receipt.payee}.` };
+    }
+
+    const { signature } = await signReceipt(receipt, key);
+    let receiptPath: string | undefined;
+    if (input.save_receipt !== false) {
+      try {
+        receiptPath = saveReceipt(receipt, signature);
+      } catch {
+        // best-effort persistence
+      }
+    }
+    return {
+      status: 'success',
+      data: { payeeSignature: signature, receiptPath },
+      message: `Receipt for ${receipt.serviceId} counter-signed by payee.`,
+    };
+  },
+};
+
+/**
+ * VERIFY_RECEIPT — verify a receipt's payee counter-signature, from an inline
+ * receipt+signature or a saved receipt file on disk.
+ */
+export const agentPayVerifyReceiptAction = {
+  name: 'AGENT_PAY_VERIFY_RECEIPT',
+  similes: ['verify payment receipt', 'check receipt signature', 'validate proof of payment'],
+  description: 'Verifies a receipt is counter-signed by its payee. Accepts an inline receipt+signature or a saved receipt path.',
+  schema: z.object({
+    receipt: receiptShape.optional(),
+    signature: z.string().optional(),
+    path: z.string().optional().describe('Path to a saved receipt JSON (alternative to inline receipt)'),
+  }),
+  handler: async (_agent: any, input: Record<string, any>) => {
+    let receipt = input.receipt as Receipt | undefined;
+    let signature = input.signature as Hex | undefined;
+
+    if (input.path) {
+      try {
+        const saved = loadReceipt(input.path);
+        receipt = saved.receipt;
+        signature = saved.payeeSignature;
+      } catch (err: any) {
+        return { status: 'error', message: `Could not load receipt: ${err.message || err}` };
+      }
+    }
+
+    if (!receipt) return { status: 'error', message: 'No receipt provided.' };
+    if (!signature) {
+      return {
+        status: 'error',
+        data: { countersigned: false },
+        message: 'Receipt has no payee counter-signature.',
+      };
+    }
+
+    const valid = await verifyReceipt(receipt, signature);
+    return {
+      status: valid ? 'success' : 'error',
+      data: {
+        countersigned: valid,
+        payee: receipt.payee,
+        txHash: receipt.txHash,
+        explorerUrl: receipt.explorerUrl,
+      },
+      message: valid
+        ? `Valid receipt: ${receipt.amountHuman} to ${receipt.payee} for ${receipt.serviceId}.`
+        : 'Receipt counter-signature does not match payee.',
+    };
+  },
+};
+
 export const ACTIONS = {
   AGENT_PAY_QUOTE: agentPayQuoteAction,
   AGENT_PAY_AUTHORIZE: agentPayAuthorizeAction,
   AGENT_PAY_VERIFY: agentPayVerifyAction,
   AGENT_PAY_SETTLE: agentPaySettleAction,
+  AGENT_PAY_SIGN_RECEIPT: agentPaySignReceiptAction,
+  AGENT_PAY_VERIFY_RECEIPT: agentPayVerifyReceiptAction,
 };

@@ -5,8 +5,10 @@
 One agent pays another **per service call** without deploying a contract per integration. The payer signs a capped EIP-712 spend voucher; the payee draws it down as it delivers work; each draw settles on-chain as an ERC-20 transfer.
 
 ```
-QUOTE ──▶ AUTHORIZE ──▶ VERIFY ──▶ SETTLE (on-chain)
- price     sign cap      check sig    draw ≤ cap, ERC-20 transfer
+QUOTE ─▶ AUTHORIZE ─▶ VERIFY ─▶ SETTLE ─▶ RECEIPT ─▶ COUNTER-SIGN ─▶ VERIFY RECEIPT
+ price    sign cap     check sig  draw ≤    saved      payee EIP-712    non-repudiable
+                                  cap +     to disk    acknowledges     proof of payment
+                                  ERC-20
 ```
 
 ## Why
@@ -16,13 +18,19 @@ Pharos is built for the AI-agent economy: agents that transact and interact on-c
 - `AGENT_PAY_QUOTE` — advertise a per-call price; compute the total to pre-authorize.
 - `AGENT_PAY_AUTHORIZE` — sign an EIP-712 `PaymentAuthorization` capped at `maxAmount`.
 - `AGENT_PAY_VERIFY` — verify a voucher's signature, expiry, and remaining balance.
-- `AGENT_PAY_SETTLE` — draw a metered amount within the cap and execute the ERC-20 payment.
+- `AGENT_PAY_SETTLE` — draw a metered amount within the cap, execute the ERC-20 payment, and emit + save a receipt.
+- `AGENT_PAY_SIGN_RECEIPT` — payee counter-signs a receipt (EIP-712) for non-repudiable proof.
+- `AGENT_PAY_VERIFY_RECEIPT` — verify a receipt's counter-signature, inline or from a saved file.
+
+## Receipts
+Every settlement returns a `Receipt` (`payer, payee, token, amount, serviceId, authorizationHash, nonce, txHash, chainId, settledAt, explorerUrl`) and writes it to `RECEIPTS_DIR/<txHash>.json` (default `./receipts`; opt out with `save_receipt: false`). The payee can counter-sign it so both parties hold portable, verifiable proof the payment happened — checkable offline via `AGENT_PAY_VERIFY_RECEIPT`.
 
 ## Guarantees
 - Settlement refused unless the signature resolves to `payer`.
 - Cumulative draws can never exceed the voucher cap (in-memory `SpendLedger`).
 - Settlement after `deadline` is refused.
 - Failed on-chain transfer rolls the ledger back — the cap is never burned on a revert.
+- Receipts are tamper-evident: any field change invalidates the payee counter-signature.
 
 ## Quickstart
 ```bash

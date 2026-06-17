@@ -37,7 +37,14 @@ This is the keystone Skill that makes every other Skill *monetizable* — a yiel
 | `AGENT_PAY_QUOTE` | A payee advertises a per-call price and the total to pre-authorize for N calls. |
 | `AGENT_PAY_AUTHORIZE` | The payer signs an EIP-712 `PaymentAuthorization` voucher capped at `maxAmount`. |
 | `AGENT_PAY_VERIFY` | Read-only: confirm a voucher's signature, expiry, and remaining balance. |
-| `AGENT_PAY_SETTLE` | Draw a metered amount within the cap and execute the on-chain ERC-20 payment. |
+| `AGENT_PAY_SETTLE` | Draw a metered amount within the cap, execute the on-chain ERC-20 payment, and emit + save a receipt. |
+| `AGENT_PAY_SIGN_RECEIPT` | Payee counter-signs a receipt (EIP-712), making it non-repudiable. |
+| `AGENT_PAY_VERIFY_RECEIPT` | Verify a receipt's payee counter-signature — from an inline object or a saved file. |
+
+## Receipts
+Every `AGENT_PAY_SETTLE` produces a durable `Receipt` — `payer, payee, token, amount (+human), serviceId, authorizationHash, nonce, txHash, chainId, settledAt, explorerUrl` — returned in-band and written to `RECEIPTS_DIR/<txHash>.json` (default `./receipts`, opt out with `save_receipt: false`).
+
+The payee can **counter-sign** a receipt with `AGENT_PAY_SIGN_RECEIPT`, producing non-repudiable proof of payment (signed under the `PharosAgentPay v1` domain). `AGENT_PAY_VERIFY_RECEIPT` validates that counter-signature, so either party can later prove the payment occurred — independently of the chain and of each other.
 
 ## The voucher (EIP-712 `PaymentAuthorization`)
 `payer, payee, token, maxAmount, deadline, nonce, serviceId` — signed under domain `PharosAgentPay v1` on chain `688689` (Pharos Atlantic testnet).
