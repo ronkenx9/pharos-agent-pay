@@ -48,6 +48,14 @@ npm run dev -- --payee 0xPayee --service yield-scout/scan --amount 0.05 --settle
 npm run mcp
 ```
 
+## Environment
+| Var | Required | Purpose |
+|---|---|---|
+| `PHAROS_RPC_URL` | no (defaults to testnet) | Pharos RPC endpoint |
+| `WALLET_PRIVATE_KEY` | yes | Payer key (authorize/settle); payee key (counter-sign receipts) |
+| `PAYMENT_TOKEN_ADDRESS` | no (defaults to USDC) | Default settlement ERC-20 |
+| `RECEIPTS_DIR` | no (default `./receipts`) | Where settlement receipts are written |
+
 ## Network
 Pharos Atlantic testnet — chain id `688689`, RPC `https://atlantic.dplabs-internal.com`, explorer `https://atlantic.pharosscan.xyz`. Default settlement token: testnet USDC (`0x72df…BCcCED`, 6 decimals).
 
